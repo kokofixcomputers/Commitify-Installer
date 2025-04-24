@@ -1,0 +1,56 @@
+name: Build and Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller PyQt5 requests
+          
+      - name: Build with PyInstaller
+        run: |
+          pyinstaller --windowed --noconfirm --clean --name "Commitify" commitify_installer.py
+          
+      - name: Package App Bundle
+        run: |
+          cd dist
+          zip -r Commitify-${{ github.event.inputs.version }}.zip Commitify.app
+        
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: Commitify-${{ github.event.inputs.version }}
+          path: dist/Commitify-${{ github.event.inputs.version }}.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Artifact
+        uses: actions/download-artifact@v3
+        with:
+          name: Commitify-${{ github.event.inputs.version }}
+          
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ github.event.inputs.version }}
+          name: "Commitify ${{ github.event.inputs.version }}"
+          body: "Pre-built macOS application bundle"
+          artifacts: "Commitify-${{ github.event.inputs.version }}.zip"
+          token: ${{ secrets.GITHUB_TOKEN }}
