@@ -32,7 +32,7 @@ jobs:
           zip -r Commitify-${{ github.event.inputs.version }}.zip Commitify.app
         
       - name: Upload Artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: Commitify-${{ github.event.inputs.version }}
           path: dist/Commitify-${{ github.event.inputs.version }}.zip
@@ -42,7 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Artifact
-        uses: actions/download-artifact@v3
+        uses: actions/download-artifact@v4
         with:
           name: Commitify-${{ github.event.inputs.version }}
           
