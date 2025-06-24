@@ -28,10 +28,10 @@ class CommitifyApp(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setup_ui()
-        self.fetch_releases()
         self.home_dir = os.path.expanduser("~")
         self.install_dir = os.path.join(self.home_dir, "bin")
         os.makedirs(self.install_dir, exist_ok=True)
+        self.fetch_releases()
 
     def setup_ui(self):
         self.setWindowTitle("Commitify Installer")
@@ -85,6 +85,14 @@ class CommitifyApp(QMainWindow):
         self.download_btn.clicked.connect(self.handle_download)
         self.download_btn.setEnabled(False)
         layout.addWidget(self.download_btn)
+
+        self.update_btn = QPushButton("Update")
+        self.update_btn.setStyleSheet(self.get_button_style())
+        self.update_btn.clicked.connect(self.handle_download)
+        self.update_btn.setVisible(False)  # hidden initially
+        self.update_btn.setEnabled(False)
+        layout.addWidget(self.update_btn)
+
         layout.addStretch()
 
     def get_dropdown_style(self):
@@ -148,7 +156,14 @@ class CommitifyApp(QMainWindow):
     def update_releases(self, releases, latest_release):
         self.release_dropdown.clear()
         self.release_dropdown.addItems(releases)
+        installed = self.is_installed()
+
+        # Toggle buttons visibility based on install status
+        self.download_btn.setVisible(not installed)
+        self.update_btn.setVisible(installed)
+
         self.download_btn.setEnabled(len(releases) > 0)
+        self.update_btn.setEnabled(len(releases) > 0)
         
         if latest_release:
             index = self.release_dropdown.findText(latest_release)
@@ -159,10 +174,17 @@ class CommitifyApp(QMainWindow):
         QMessageBox.critical(self, "Error", message)
         self.release_dropdown.setPlaceholderText("Failed to load releases")
 
+    def is_installed(self):
+        binary_path = os.path.join(self.install_dir, "commitify")
+        return os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)
+
     def handle_download(self):
         selected_release = self.release_dropdown.currentText()
         if not selected_release:
             return
+
+        sender = self.sender()
+        action = "updated" if sender == self.update_btn else "installed"
 
         try:
             release_url = f"https://api.github.com/repos/kokofixcomputers/Commitify/releases/tags/{selected_release}"
@@ -170,13 +192,12 @@ class CommitifyApp(QMainWindow):
             response.raise_for_status()
             release_data = response.json()
             
-            # Find platform-specific asset
             asset = self.find_platform_asset(release_data['assets'])
             if not asset:
                 QMessageBox.critical(self, "Error", "No compatible binary found for your system")
                 return
 
-            binary_name = "commitify"  # Final installed name
+            binary_name = "commitify"
             download_path = os.path.join(self.install_dir, binary_name)
             self.download_file(asset['browser_download_url'], download_path)
             os.chmod(download_path, 0o755)  # Make executable
@@ -186,10 +207,15 @@ class CommitifyApp(QMainWindow):
             QMessageBox.information(
                 self, 
                 "Success", 
-                f"""Commitify has been installed successfully! You may need to restart your terminal to use it.""",
+                f"Commitify has been {action} successfully! You may need to restart your terminal to use it.",
                 QMessageBox.Ok
             )
-            
+
+            # Update button visibility after install/update
+            installed = self.is_installed()
+            self.download_btn.setVisible(not installed)
+            self.update_btn.setVisible(installed)
+
         except Exception as e:
             QMessageBox.critical(
                 self,
