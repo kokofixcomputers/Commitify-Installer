@@ -29,7 +29,11 @@ class CommitifyApp(QMainWindow):
         super().__init__()
         self.setup_ui()
         self.home_dir = os.path.expanduser("~")
-        self.install_dir = os.path.join(self.home_dir, "bin")
+        # Use different install directory on Windows
+        if sys.platform.startswith("win"):
+            self.install_dir = os.path.join(self.home_dir, "CommitifyBin")
+        else:
+            self.install_dir = os.path.join(self.home_dir, "bin")
         os.makedirs(self.install_dir, exist_ok=True)
         self.fetch_releases()
 
@@ -175,8 +179,16 @@ class CommitifyApp(QMainWindow):
         self.release_dropdown.setPlaceholderText("Failed to load releases")
 
     def is_installed(self):
-        binary_path = os.path.join(self.install_dir, "commitify")
+        binary_name = self.get_binary_name()
+        binary_path = os.path.join(self.install_dir, binary_name)
         return os.path.isfile(binary_path) and os.access(binary_path, os.X_OK)
+
+    def get_binary_name(self):
+        # Windows executables usually have .exe extension
+        if sys.platform.startswith("win"):
+            return "commitify.exe"
+        else:
+            return "commitify"
 
     def handle_download(self):
         selected_release = self.release_dropdown.currentText()
@@ -197,17 +209,19 @@ class CommitifyApp(QMainWindow):
                 QMessageBox.critical(self, "Error", "No compatible binary found for your system")
                 return
 
-            binary_name = "commitify"
+            binary_name = self.get_binary_name()
             download_path = os.path.join(self.install_dir, binary_name)
             self.download_file(asset['browser_download_url'], download_path)
-            os.chmod(download_path, 0o755)  # Make executable
-            
+
+            if not sys.platform.startswith("win"):
+                os.chmod(download_path, 0o755)  # Make executable on Unix
+
             self.update_shell_profile()
             
             QMessageBox.information(
                 self, 
                 "Success", 
-                f"Commitify has been {action} successfully! You may need to restart your terminal to use it.",
+                f"Commitify has been {action} successfully! You may need to restart your terminal or command prompt to use it.",
                 QMessageBox.Ok
             )
 
@@ -227,14 +241,20 @@ class CommitifyApp(QMainWindow):
     def find_platform_asset(self, assets):
         system_map = {
             "darwin": ["darwin", "macos"],
-            "linux": ["linux", "ubuntu", "debian"]
+            "linux": ["linux", "ubuntu", "debian"],
+            "win32": ["windows", "win", ".exe"]
         }
         
         current_system = sys.platform.lower()
+        # Normalize Windows platform string
+        if current_system.startswith("win"):
+            current_system = "win32"
+
         target_keywords = system_map.get(current_system, [])
         
         for asset in assets:
-            if any(keyword in asset['name'].lower() for keyword in target_keywords):
+            asset_name_lower = asset['name'].lower()
+            if any(keyword in asset_name_lower for keyword in target_keywords):
                 return asset
         return None
 
@@ -247,18 +267,55 @@ class CommitifyApp(QMainWindow):
                 f.write(chunk)
 
     def update_shell_profile(self):
-        path_line = f'\nexport PATH="$HOME/bin:$PATH"\n'
-        profiles = [".zshrc", ".bashrc", ".bash_profile"]
-        
-        for profile in profiles:
-            profile_path = os.path.expanduser(f"~/{profile}")
-            try:
-                with open(profile_path, "a+") as f:
-                    f.seek(0)
-                    if path_line.strip() not in f.read():
-                        f.write(path_line)
-            except Exception:
-                continue
+        if sys.platform.startswith("win"):
+            # On Windows, update PATH environment variable if needed
+            self.update_windows_path()
+        else:
+            # On Unix-like systems, update shell profiles
+            path_line = f'\nexport PATH="$HOME/bin:$PATH"\n'
+            profiles = [".zshrc", ".bashrc", ".bash_profile"]
+            
+            for profile in profiles:
+                profile_path = os.path.expanduser(f"~/{profile}")
+                try:
+                    with open(profile_path, "a+") as f:
+                        f.seek(0)
+                        if path_line.strip() not in f.read():
+                            f.write(path_line)
+                except Exception:
+                    continue
+
+    def update_windows_path(self):
+        import winreg
+        try:
+            # Read current user PATH
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_READ) as key:
+                try:
+                    current_path, _ = winreg.QueryValueEx(key, "PATH")
+                except FileNotFoundError:
+                    current_path = ""
+            
+            install_dir = self.install_dir
+            if install_dir.lower() not in current_path.lower():
+                new_path = f"{current_path};{install_dir}" if current_path else install_dir
+                with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment", 0, winreg.KEY_WRITE) as key:
+                    winreg.SetValueEx(key, "PATH", 0, winreg.REG_EXPAND_SZ, new_path)
+                # Inform user to restart their session
+                QMessageBox.information(
+                    self,
+                    "PATH Updated",
+                    "The installation directory has been added to your user PATH environment variable.\n"
+                    "Please restart your command prompt or log out and back in for changes to take effect.",
+                    QMessageBox.Ok
+                )
+        except Exception as e:
+            QMessageBox.warning(
+                self,
+                "PATH Update Failed",
+                f"Failed to update PATH environment variable automatically.\n"
+                f"Please add the following directory to your PATH manually:\n{self.install_dir}\n\nError: {e}",
+                QMessageBox.Ok
+            )
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
